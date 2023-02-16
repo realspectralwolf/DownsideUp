@@ -3,23 +3,27 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-[RequireComponent(typeof( EventTrigger ))]
+[RequireComponent(typeof(EventTrigger))]
 public class ButtonScript : MonoBehaviour
 {
     public static event System.Action hovered;
     public static event System.Action clicked;
+
     void Start()
     {
-        EventTrigger eventTrigger = GetComponent<EventTrigger>( );
-        EventTrigger.Entry entry = new EventTrigger.Entry( );
-        entry.eventID = EventTriggerType.PointerEnter;
-        entry.callback.AddListener( ( data ) => { OnHovered( (PointerEventData)data ); } );
-        eventTrigger.triggers.Add( entry );
+        AddUIEventCallback(EventTriggerType.PointerEnter, OnHovered);
+        AddUIEventCallback(EventTriggerType.PointerDown, OnClicked);
+    }
 
-        EventTrigger.Entry entry2 = new EventTrigger.Entry( );
-        entry2.eventID = EventTriggerType.PointerDown;
-        entry2.callback.AddListener( ( data ) => { OnClicked( (PointerEventData)data ); } );
-        eventTrigger.triggers.Add( entry2 );
+    public delegate void MyMethodDelegate(PointerEventData data);
+
+    void AddUIEventCallback(EventTriggerType type, MyMethodDelegate methodCallback)
+    {
+        EventTrigger eventTrigger = GetComponent<EventTrigger>();
+        EventTrigger.Entry entry = new EventTrigger.Entry();
+        entry.eventID = type;
+        entry.callback.AddListener((data) => { methodCallback((PointerEventData)data); });
+        eventTrigger.triggers.Add(entry);
     }
 
     void OnHovered(PointerEventData data)

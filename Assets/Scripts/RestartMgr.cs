@@ -10,6 +10,7 @@ public class RestartMgr : MonoBehaviour
     [SerializeField] Material ceilingMat1;
     [SerializeField] MeshRenderer ceilingRenderer;
     [SerializeField] AudioClip audioRotateRoom;
+
     public static event System.Action roomRotateStart;
     public static event System.Action gameStarted;
     bool isPaused = false;
@@ -21,41 +22,29 @@ public class RestartMgr : MonoBehaviour
         PlayerPrefs.SetString("savedLevel", currentScene);
 
         if (currentScene == "End")
-        {
             PlayerPrefs.SetString("savedLevel", "Level 1");
-        }
 
         Cursor.lockState = CursorLockMode.Locked;
+        Time.timeScale = 1;
 
-        Rigidbody[] rbs = GameObject.FindObjectsOfType<Rigidbody>();     
-        Time.timeScale = 1; 
-
-        if (SceneManager.GetActiveScene().name == "Level 1")
-        {   
-            canvas.SetActive(false);  
-
-            for(int i = 0; i < rbs.Length; i++)
-            {
-                if (rbs[i].gameObject.tag == "Player")
-                {
-                    continue;
-                }
-                
-                rbs[i].isKinematic = true;
-            }
-            StartCoroutine(FreezeAfter(4.4F));
-            StartCoroutine(UnfreezeAfter(6));
-        }
-        else
+        bool isInitialLevel = false;
+        if (currentScene == "Level 1")
         {
-            canvas.SetActive(true);
-            for(int i = 0; i < rbs.Length; i++)
-            {
-                rbs[i].isKinematic = true;
-            }
-            StartCoroutine(UnfreezeAfter(2));
+            isInitialLevel = true;
+            StartCoroutine(FreezeAfter(4.4F));
         }
-        
+
+        canvas.SetActive(!isInitialLevel);
+
+        Rigidbody[] rbs = FindObjectsOfType<Rigidbody>();
+        for (int i = 0; i < rbs.Length; i++)
+        {
+            if (rbs[i].gameObject.tag == "Player" && isInitialLevel) continue;
+            rbs[i].isKinematic = true;
+        }
+
+        float unfreezeDelay = isInitialLevel ? 6 : 2;
+        StartCoroutine(UnfreezeAfter(unfreezeDelay));
     }
 
     // Update is called once per frame
@@ -118,7 +107,7 @@ public class RestartMgr : MonoBehaviour
             isPaused = true;
             Cursor.lockState = CursorLockMode.None;
 
-            Rigidbody[] rbs = GameObject.FindObjectsOfType<Rigidbody>();
+            Rigidbody[] rbs = FindObjectsOfType<Rigidbody>();
             for(int i = 0; i < rbs.Length; i++)
             {
                 rbs[i].isKinematic = true;
@@ -130,12 +119,11 @@ public class RestartMgr : MonoBehaviour
     {
         if (isPaused)
         {
-            
             Cursor.lockState = CursorLockMode.Locked;
             canvasPause.SetActive(false);
             isPaused = false;
 
-            Rigidbody[] rbs = GameObject.FindObjectsOfType<Rigidbody>();
+            Rigidbody[] rbs = FindObjectsOfType<Rigidbody>();
             for(int i = 0; i < rbs.Length; i++)
             {
                 rbs[i].isKinematic = false;

@@ -10,10 +10,4 @@ public class UnfreezeTime : MonoBehaviour
         Time.timeScale = 1; 
         Cursor.lockState = CursorLockMode.None;
     }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
 }

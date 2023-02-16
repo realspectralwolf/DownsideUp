@@ -4,20 +4,30 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
+    #region Variables
+
     public static PlayerController instance;
+    Vector2 input;
+    Rigidbody _rb;
+    bool isGrounded = false;
+    List<Rigidbody> collidersInRange = new List<Rigidbody>();
+    bool isHolding = false;
+    Rigidbody draggableRb;
+
+    CapsuleCollider _collider;
+    float startMoveSpeed;
+    bool canMove = true;
+    bool isRoomRotated = false;
+    float _footstepsStopDelay = 0.2F;
+    float _footstepsTimer = 0;
+    Vector3 holdOffset;
+
     [SerializeField] float moveSpeed;
     [SerializeField] float jumpForce;
     [SerializeField] Transform groundCheckPoint;
     [SerializeField] float distToGround;
     [SerializeField] LayerMask jumpableLayer;
     [SerializeField] Animator _animator;
-    Vector2 input;
-    Rigidbody _rb;
-    Vector3 lastPos;
-    bool isGrounded = false;
-    List<Rigidbody> collidersInRange = new List<Rigidbody>();
-    bool isHolding = false;
-    Rigidbody draggableRb;
     [SerializeField] LineRenderer lineRend;
     [SerializeField] Transform lineStartPoint;
     [SerializeField] AudioSource footstepsAudiosource;
@@ -26,35 +36,83 @@ public class PlayerController : MonoBehaviour
     [SerializeField] float rotSmoothing;
     [SerializeField] PhysicMaterial frictionMat;
     [SerializeField] PhysicMaterial slipperyMat;
-    CapsuleCollider _collider;
-    float startMoveSpeed;
-    bool canMove = true;
-    bool isRoomRotated = false;
-    float _footstepsStopDelay = 0.2F;
-    float _footstepsTimer = 0;
-    Vector3 holdOffset;
-    Vector3 holdClosestVertex;
 
-    void Awake()
+    #endregion
+
+    #region MonoBehaviour Callbacks
+
+    private void Awake()
     {
         instance = this;
     }
 
-    void OnEnable()
+    private void OnEnable()
     {
         ExitScript.PlayerExited += OnExitLevel;
         RestartMgr.gameStarted += GameStarted;
         RestartMgr.roomRotateStart += OnRoomRotate;
     }
 
-    void OnDisable()
+    private void OnDisable()
     {
         ExitScript.PlayerExited -= OnExitLevel;
         RestartMgr.gameStarted -= GameStarted;
         RestartMgr.roomRotateStart -= OnRoomRotate;
     }
 
-    void GameStarted()
+    private void Start()
+    {
+        _rb = GetComponent<Rigidbody>();
+        _collider = GetComponent<CapsuleCollider>();
+
+        lineRend.positionCount = 0;
+        startMoveSpeed = moveSpeed;
+        _rb.centerOfMass = Vector3.zero;
+    }
+
+    private void Update()
+    {
+        input.x = Input.GetAxisRaw("Horizontal");
+        input.y = Input.GetAxisRaw("Vertical");
+
+        if (!isRoomRotated) return;
+
+        if (isGrounded && Input.GetButton("Jump") && _rb.velocity.y <= 0)
+        {
+            _rb.AddForce(Vector3.up * jumpForce);
+            AudioSource.PlayClipAtPoint(audioJump, _rb.transform.position);
+            isGrounded = false;
+        }
+
+        HandleObjectGrabbingSystem();
+    }
+
+    private void FixedUpdate()
+    {
+        isGrounded = IsGrounded();
+        HandlePlayerRotation();
+
+        if (canMove)
+        {
+            HandlePlayerMovement();
+            FootstepSystemFixedUpdate();
+            ApplyAdditionalGravity();
+        }
+
+        UpdateAnimatorVariables();
+    }
+
+    private void OnDrawGizmos()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawSphere(groundCheckPoint.position, distToGround);
+    }
+
+    #endregion
+
+    #region Methods
+
+    private void GameStarted()
     {
         transform.SetParent(null);
         
@@ -63,44 +121,18 @@ public class PlayerController : MonoBehaviour
         isRoomRotated = true;
     }
 
-    void OnRoomRotate()
+    private void OnRoomRotate()
     {
         canMove = false;
     }
 
-    void OnExitLevel()
+    private void OnExitLevel()
     {
         gameObject.SetActive(false);
     }
 
-    // Start is called before the first frame update
-    void Start()
+    private void HandleObjectGrabbingSystem()
     {
-        _rb = GetComponent<Rigidbody>();
-        _collider = GetComponent<CapsuleCollider>();
-
-        lineRend.positionCount = 0;
-        lastPos = _rb.transform.position;
-        startMoveSpeed = moveSpeed;
-        _rb.centerOfMass = Vector3.zero;
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        input.x = Input.GetAxisRaw("Horizontal");
-        input.y = Input.GetAxisRaw("Vertical");
-
-        if (!isRoomRotated) return;
-
-        if (isGrounded && Input.GetButton("Jump") && _rb.velocity.y <= 0 )
-        {
-            _rb.AddForce(Vector3.up * jumpForce);
-            AudioSource.PlayClipAtPoint(audioJump, _rb.transform.position);
-            isGrounded = false;
-        }
-
-        #region GrabbingSystem
 
         if (Input.GetButtonDown("Fire1") && !isHolding)
         {
@@ -116,7 +148,7 @@ public class PlayerController : MonoBehaviour
         {
             EndHolding();
         }
-        
+
         if (isHolding)
         {
             lineRend.positionCount = 2;
@@ -128,11 +160,9 @@ public class PlayerController : MonoBehaviour
         }
 
         _animator.SetBool("isHolding", isHolding);
-
-        #endregion
     }
 
-    void StartHolding()
+    private void StartHolding()
     {
         if (collidersInRange.Count > 0)
         {
@@ -151,40 +181,14 @@ public class PlayerController : MonoBehaviour
             AudioSource.PlayClipAtPoint(audioLaserOn, _rb.transform.position);
             draggableRb.gameObject.GetComponent<Outline>().enabled = true;
 
-            // TESTING
             holdOffset = draggableRb.transform.position - _rb.transform.position;
-            //draggableRb.collisionDetectionMode = CollisionDetectionMode.Continuous;
-            //draggableRb.interpolation = RigidbodyInterpolation.None;
 
             draggableRb.freezeRotation = true;
-
-            //Find closest vertex (disable, not working as expected)
-            /*
-            Vector3 myPos = lineStartPoint.position;
-            Vector3 draggablePos = draggableRb.transform.position;
-
-            Vector3 localClosestVertex = new Vector3(200, 200, 200);
-            Vector3[] faces = draggableRb.gameObject.GetComponent<MeshFilter>().mesh.normals;
-        
-            for(int i = 0; i < faces.Length; i++)
-            {
-                float currentDistance = Vector3.Distance(myPos, draggablePos + localClosestVertex);
-                float newDistance = Vector3.Distance(myPos, draggablePos + faces[i]);
-
-                if (newDistance < currentDistance)
-                {
-                    localClosestVertex = faces[i];
-                }
-            }
-
-            holdClosestVertex = localClosestVertex;
-            */
-
             isHolding = true;
         }
     }
 
-    void EndHolding()
+    private void EndHolding()
     {
         isHolding = false;
         lineRend.positionCount = 0;
@@ -198,9 +202,6 @@ public class PlayerController : MonoBehaviour
         }
 
         draggableRb.freezeRotation = false;
-
-        //draggableRb.interpolation = RigidbodyInterpolation.Interpolate;
-        //AudioSource.PlayClipAtPoint(audioLaserOff, _rb.transform.position);
     }
 
     public void EnterGrabRange(Collider other)
@@ -219,59 +220,31 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    void FixedUpdate()
+    private void HandlePlayerRotation()
     {
-        isGrounded = IsGrounded();
-
-        Vector3 moveVector = Vector3.zero;
-        moveVector += Vector3.forward * input.y * moveSpeed + Vector3.right * input.y * moveSpeed;
-        moveVector += -Vector3.forward * input.x * moveSpeed + Vector3.right * input.x * moveSpeed;
-
-        if (canMove)
+        if (canMove && GetMoveDirection().magnitude != 0)
         {
-            Vector3 mVelocity = _rb.velocity;
-            mVelocity.y = 0;
-            _animator.SetFloat("xSpeed", mVelocity.magnitude);
-            //_animator.SetFloat("xSpeed", moveVector.magnitude);
+            Vector3 newRot = _rb.rotation.eulerAngles;
+            newRot.y = Quaternion.LookRotation(_rb.transform.position + GetMoveDirection() * moveSpeed * 3, Vector3.up).eulerAngles.y;
+            Quaternion qRot = Quaternion.Euler(newRot);
+
+            _rb.MoveRotation(Quaternion.Slerp(_rb.transform.rotation, qRot, rotSmoothing));
+        }
+    }
+
+    private void HandlePlayerMovement()
+    {
+        if (isHolding)
+        {
+            Vector3 velocityChange = _rb.velocity - draggableRb.velocity;
+            velocityChange.y /= 4;
+            draggableRb.AddForce(velocityChange, ForceMode.VelocityChange);
+            moveSpeed = startMoveSpeed / 1.5F;
         }
         else
         {
-            _animator.SetFloat("xSpeed", 0);
-            footstepsAudiosource.enabled = false;
+            moveSpeed = startMoveSpeed;
         }
-
-        #region PlayerRotation
-
-        if (canMove && moveVector.magnitude != 0)
-        {
-            Vector3 newRot = _rb.rotation.eulerAngles;
-            newRot.y = Quaternion.LookRotation(_rb.transform.position + 3*moveVector, Vector3.up).eulerAngles.y;
-            Quaternion qRot = Quaternion.Euler(newRot);
-
-            _rb.MoveRotation(Quaternion.Slerp(_rb.transform.rotation, qRot, rotSmoothing)); 
-        }  
-
-        #endregion
-
-        if (!canMove) return;
-
-        #region FootstepsAudioSystem
-
-        _footstepsTimer += Time.fixedDeltaTime;
-
-        if (isGrounded && _rb.velocity.y > -1 && _rb.velocity.y < 1 && moveVector != Vector3.zero)
-        {
-            footstepsAudiosource.enabled = true;
-            _footstepsTimer = 0;
-        }
-        else if (_footstepsTimer >= _footstepsStopDelay)
-        {
-            footstepsAudiosource.enabled = false;
-        }
-
-        #endregion
-
-        _rb.AddForce(moveVector);
 
         if (isGrounded)
         {
@@ -282,48 +255,69 @@ public class PlayerController : MonoBehaviour
             _collider.material = slipperyMat;
         }
 
-        _animator.SetBool("isGrounded", isGrounded);
+        _rb.AddForce(GetMoveDirection() * moveSpeed);
+    }
 
-        if (isHolding)
+    private Vector3 GetMoveDirection() // diagonal movement mapping
+    {
+        Vector3 dir = Vector3.forward * input.y + Vector3.right * input.y;
+        dir += -Vector3.forward * input.x + Vector3.right * input.x;
+        return dir;
+    }
+
+    private float GetWalkVelocityMagnitude()
+    {
+        Vector3 mVelocity = _rb.velocity;
+        mVelocity.y = 0;
+        return mVelocity.magnitude;
+    }
+
+    private void UpdateAnimatorVariables()
+    {
+        if (canMove)
         {
-            Vector3 velocityChange = _rb.velocity - draggableRb.velocity;
-            velocityChange.y /= 4;
-
-            draggableRb.AddForce(velocityChange, ForceMode.VelocityChange);
-
-            moveSpeed = startMoveSpeed / 1.5F;
+            
+            _animator.SetFloat("xSpeed", GetWalkVelocityMagnitude());
         }
         else
         {
-            moveSpeed = startMoveSpeed;
+            _animator.SetFloat("xSpeed", 0);
         }
-
-        // add more gravity
-        if (!isGrounded) 
-            _rb.AddForce(-Vector3.up * 20, ForceMode.Acceleration);
-
-        lastPos = _rb.transform.position;
+        _animator.SetBool("isGrounded", isGrounded);
     }
 
-    bool IsGrounded()  
+    private void ApplyAdditionalGravity()
     {
-        //return Physics.Raycast(groundCheckPoint.position, -Vector3.up, distToGround);
-        return Physics.CheckSphere(groundCheckPoint.position, distToGround, jumpableLayer);
-        //return Physics.CheckSphere(groundCheckPoint.position, distToGround);
+        if (!isGrounded)
+            _rb.AddForce(-Vector3.up * 20, ForceMode.Acceleration);
     }
 
-    void DrawLine()
+    private void FootstepSystemFixedUpdate()
+    {
+        _footstepsTimer += Time.fixedDeltaTime;
+
+        if (isGrounded && _rb.velocity.y > -1 && _rb.velocity.y < 1 && GetWalkVelocityMagnitude() > 1)
+        {
+            footstepsAudiosource.enabled = true;
+            _footstepsTimer = 0;
+        }
+        else if (_footstepsTimer >= _footstepsStopDelay)
+        {
+            footstepsAudiosource.enabled = false;
+        }
+    }
+
+    private bool IsGrounded()  
+    {
+        return Physics.CheckSphere(groundCheckPoint.position, distToGround, jumpableLayer);
+    }
+
+    private void DrawLine()
     {
         lineRend.SetPosition(0, lineStartPoint.position);
         Vector3 secondPos = draggableRb.transform.position + draggableRb.centerOfMass;
         lineRend.SetPosition(1, secondPos);
-
-        //lineRend.SetPosition(1, draggableRb.transform.position + holdClosestVertex);
     }
 
-    void OnDrawGizmos()
-    {
-        Gizmos.color = Color.red;
-        Gizmos.DrawSphere(groundCheckPoint.position, distToGround);
-    }
+    #endregion
 }

@@ -8,7 +8,6 @@ public class GrabRangeMgr : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        Debug.Log("entered");
         controller.EnterGrabRange(other);
     }
 
